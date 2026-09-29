@@ -13,6 +13,7 @@ jobs:
         os: [macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     env:
+      PYTHONUTF8: '1'
       PDF_LENS_TEST_HOME_NAME: 새 설치 Codex
       PDF_LENS_TEST_OUTPUT_NAME: 검증 결과
     steps:

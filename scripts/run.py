@@ -24,8 +24,10 @@ def select_runtime(root, work, new_job):
     home = Path(state['skill_path']).parent.parent
     tool_dir = home / 'tool-envs/pdf-lens'
     if new_job:
+        update_env = os.environ.copy()
+        update_env['PYTHONUTF8'] = '1'
         result = subprocess.run([sys.executable, str(root/'scripts/manage_install.py'),
-            '--codex-home', str(home), 'update'], cwd=home, stdout=sys.stderr)
+            '--codex-home', str(home), 'update'], cwd=home, stdout=sys.stderr, env=update_env)
         if result.returncode:
             print('PDF Lens: 업데이트를 적용하지 못해 검증된 기존 버전으로 계속합니다.', file=sys.stderr)
         state = read(home/'skills/pdf-lens/install-state.json')
@@ -68,12 +70,15 @@ def main(argv=None):
     if getattr(args,'annotations',None):command.extend(['--annotations',str(args.annotations.resolve())])
     if getattr(args,'output',None):command.extend(['--output',str(args.output.resolve())])
     env=os.environ.copy()
+    env['PYTHONUTF8']='1'
     if runtime.get('browser_cache'):env['PLAYWRIGHT_BROWSERS_PATH']=runtime['browser_cache']
     result=subprocess.run(command,env=env)
     return result.returncode
 
 
 if __name__=='__main__':
+    sys.stdout.reconfigure(encoding='utf-8')
+    sys.stderr.reconfigure(encoding='utf-8')
     try:
         raise SystemExit(main())
     except (OSError,ValueError,KeyError) as error:

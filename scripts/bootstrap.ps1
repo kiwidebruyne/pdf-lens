@@ -4,6 +4,7 @@ param(
   [ValidateSet("install", "update", "state", "uninstall")][string]$Action = "install"
 )
 $ErrorActionPreference = "Stop"
+$env:PYTHONUTF8 = "1"
 $toolDir = Join-Path $CodexHome "tool-envs\pdf-lens"
 $uvDir = Join-Path $toolDir "uv"
 $uv = Join-Path $uvDir "uv.exe"
@@ -19,7 +20,7 @@ if (-not (Test-Path $uv)) {
   try {
     Invoke-WebRequest -Uri "https://astral.sh/uv/install.ps1" -OutFile $installer
     & $installer
-    if ($LASTEXITCODE -ne 0 -or -not (Test-Path $uv)) { throw "Private uv installation failed." }
+    if (-not (Test-Path $uv)) { throw "Private uv installation failed." }
   } finally { Remove-Item $installer -Force -ErrorAction SilentlyContinue }
 }
 
