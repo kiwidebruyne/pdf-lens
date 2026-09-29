@@ -22,6 +22,7 @@ import xml.etree.ElementTree as ET
 ROOT = Path(__file__).resolve().parents[1]
 ENGLISH = re.compile(r'[A-Za-z]')
 REASONS = {'references', 'running_header', 'page_number', 'nonlinguistic'}
+RUNTIME_ID = re.compile(r'\d+\.\d+\.\d+-[a-f0-9]{16}\Z')
 
 
 def digest(path):
@@ -120,6 +121,14 @@ def verify_manifest(work, prepared):
     expected = {'source.pdf', 'prepared.json', 'pdfinfo.txt', 'inspection.txt'}
     expected.update(('anomalies.json', 'glyphs.json'))
     expected.update(page['svg'] for page in prepared['pages'])
+    execution_path = work / 'execution.json'
+    if execution_path.is_file():
+        execution = read_json(execution_path)
+        if (not isinstance(execution, dict) or set(execution) != {'runtime_id'} or
+                not isinstance(execution.get('runtime_id'), str) or
+                not RUNTIME_ID.fullmatch(execution['runtime_id'])):
+            raise ValueError('Execution runtime pin is invalid')
+        expected.add('execution.json')
     if manifest.get('version') != prepared['version'] or set(manifest.get('files', {})) != expected:
         raise ValueError('Machine artifact integrity manifest is invalid')
     backend = manifest.get('backend')
@@ -226,8 +235,10 @@ def _extract_v2(pdf_path, stage, first, last=None):
     return source_pages, pages, anomalies, glyphs, inspection
 
 
-def prepare(pdf, work, page_range=None):
+def prepare(pdf, work, page_range=None, runtime_id=None):
     pdf, work = pdf.resolve(), work.resolve()
+    if runtime_id is not None and (not isinstance(runtime_id, str) or not RUNTIME_ID.fullmatch(runtime_id)):
+        raise ValueError('Runtime ID must match x.y.z-16-lowercase-hex')
     source_hash = digest(pdf)
     if page_range is not None:
         selected = re.fullmatch(r'([1-9]\d*)-([1-9]\d*)', page_range)
@@ -250,6 +261,12 @@ def prepare(pdf, work, page_range=None):
             raise ValueError('Work directory belongs to a different selected page range')
         verify_manifest(work, previous)
         prepared_tokens(work, previous)
+        existing_execution = work / 'execution.json'
+        if runtime_id is not None:
+            if not existing_execution.is_file():
+                raise ValueError('Existing work has no execution runtime pin')
+            if read_json(existing_execution).get('runtime_id') != runtime_id:
+                raise ValueError('Work directory belongs to a different execution runtime')
         return {'ok': True, 'resumed': True, 'work': str(work)}
     work.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix='.paper-prepare-', dir=work.parent) as temporary:
@@ -283,8 +300,12 @@ def prepare(pdf, work, page_range=None):
         starter.update({'scope': scope, 'page_labels': {}, 'toc': [], 'math': {}})
         write_json(stage / 'annotations.json', starter)
         (stage / 'inspection.txt').write_text('\n'.join(inspection) + '\n', encoding='utf-8')
+        if runtime_id is not None:
+            write_json(stage / 'execution.json', {'runtime_id': runtime_id})
         machine_files = ['source.pdf', 'prepared.json', 'pdfinfo.txt', 'inspection.txt']
         machine_files.extend(('anomalies.json', 'glyphs.json'))
+        if runtime_id is not None:
+            machine_files.append('execution.json')
         machine_files.extend(page['svg'] for page in pages)
         write_json(stage / 'manifest.json', {'version': version, 'backend': backend,
                     'processor_version': prepared['processor_version'],
@@ -564,7 +585,7 @@ def build(work, annotations, output):
     output = output.resolve()
     protected = {annotations.resolve()}
     protected.update((work / name).resolve() for name in
-                     ('source.pdf', 'prepared.json', 'pdfinfo.txt', 'inspection.txt', 'annotations.json', 'manifest.json', 'anomalies.json', 'glyphs.json'))
+                     ('source.pdf', 'prepared.json', 'pdfinfo.txt', 'inspection.txt', 'annotations.json', 'manifest.json', 'anomalies.json', 'glyphs.json', 'execution.json'))
     protected.update(local_path(work, page['svg']) for page in prepared['pages'])
     if output in protected:
         raise ValueError('Output must not replace input or prepared artifacts')
@@ -586,7 +607,7 @@ def build(work, annotations, output):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest='action', required=True)
-    p = sub.add_parser('prepare'); p.add_argument('pdf', type=Path); p.add_argument('--work', required=True, type=Path); p.add_argument('--pages')
+    p = sub.add_parser('prepare'); p.add_argument('pdf', type=Path); p.add_argument('--work', required=True, type=Path); p.add_argument('--pages'); p.add_argument('--runtime-id')
     for name in ('validate', 'build'):
         p = sub.add_parser(name); p.add_argument('--work', required=True, type=Path); p.add_argument('--annotations', required=True, type=Path)
         if name == 'build':
@@ -594,7 +615,7 @@ def main():
     args = parser.parse_args()
     try:
         if args.action == 'prepare':
-            report = prepare(args.pdf, args.work, args.pages)
+            report = prepare(args.pdf, args.work, args.pages, args.runtime_id)
         elif args.action == 'validate':
             _, _, report = validate(args.work, args.annotations)
         else:

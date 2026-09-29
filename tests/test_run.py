@@ -90,7 +90,9 @@ class RunTests(unittest.TestCase):
         self.assertEqual(len(commands), 2)
         self.assertEqual(commands[0][0][-1], "update")
         self.assertEqual(commands[1][0][1], str(self.tool_dir / "runtimes" / self.old_id / "source_snapshot" / "scripts" / "paper_reader.py"))
-        self.assertEqual(json.loads((self.work / "execution.json").read_text()), {"runtime_id": self.old_id})
+        command = commands[1][0]
+        self.assertEqual(command[command.index("--runtime-id") + 1], self.old_id)
+        self.assertFalse((self.work / "execution.json").exists(), "The child must commit the pin with its work transaction")
 
         self.write_prepared("0.1.0")
         self.write_execution(self.old_id)

@@ -60,7 +60,9 @@ def main(argv=None):
     new_job=args.command=='prepare' and not (work/'prepared.json').exists()
     runtime,runtime_id=select_runtime(ROOT,work,new_job)
     command=[runtime['python_executable'],str(Path(runtime['source_snapshot'])/'scripts/paper_reader.py'),args.command]
-    if args.command=='prepare':command.append(str(args.pdf.resolve()))
+    if args.command=='prepare':
+        command.append(str(args.pdf.resolve()))
+        if runtime_id:command.extend(['--runtime-id',runtime_id])
     command.extend(['--work',str(work)])
     if getattr(args,'pages',None):command.extend(['--pages',args.pages])
     if getattr(args,'annotations',None):command.extend(['--annotations',str(args.annotations.resolve())])
@@ -68,10 +70,6 @@ def main(argv=None):
     env=os.environ.copy()
     if runtime.get('browser_cache'):env['PLAYWRIGHT_BROWSERS_PATH']=runtime['browser_cache']
     result=subprocess.run(command,env=env)
-    if result.returncode==0 and new_job and runtime_id:
-        temporary=work/'.execution.tmp'
-        temporary.write_text(json.dumps({'runtime_id':runtime_id},indent=2)+'\n',encoding='utf-8')
-        temporary.replace(work/'execution.json')
     return result.returncode
 
 

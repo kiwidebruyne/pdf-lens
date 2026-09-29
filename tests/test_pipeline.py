@@ -117,6 +117,23 @@ class PipelineTests(unittest.TestCase):
         changed_source = self.cli('prepare', self.pdf, '--work', self.work, '--pages', '1-2')
         self.assertNotEqual(changed_source.returncode, 0)
 
+    def test_runtime_pin_is_published_atomically_and_enforced_on_resume(self):
+        runtime_id = '0.1.0-0123456789abcdef'
+        result = self.cli('prepare', self.pdf, '--work', self.work, '--runtime-id', runtime_id)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        execution_path = self.work / 'execution.json'
+        self.assertEqual(json.loads(execution_path.read_text(encoding='utf-8')),
+                         {'runtime_id': runtime_id})
+        manifest = json.loads((self.work / 'manifest.json').read_text(encoding='utf-8'))
+        self.assertEqual(manifest['files']['execution.json'],
+                         hashlib.sha256(execution_path.read_bytes()).hexdigest())
+        resumed = self.cli('prepare', self.pdf, '--work', self.work, '--runtime-id', runtime_id)
+        self.assertEqual(resumed.returncode, 0, resumed.stdout + resumed.stderr)
+        mismatched = self.cli('prepare', self.pdf, '--work', self.work,
+                              '--runtime-id', '0.1.0-fedcba9876543210')
+        self.assertNotEqual(mismatched.returncode, 0)
+        self.assertIn('different execution runtime', mismatched.stdout)
+
     def test_cropbox_and_all_rotations_keep_tokens_in_svg_coordinates(self):
         original = self.pdf
         original_box = None
