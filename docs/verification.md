@@ -1,44 +1,45 @@
-# Verification record
+# 검증 기록
 
-This page is the release verification record for PDF Lens. Only record a result after running the named check against the release candidate; include the operating system, tool/runtime versions, exact command or scenario, and pass/fail outcome. A code review or unit test alone does not establish that a person can create and read a complete PDF companion.
+## 각 PDF를 전달하기 전
 
-## Environment setup
+문장·단어·수식 작성 워커의 자체 검수 결과를 모으고, 통합 담당자는 추출 이상, 수식, 경계, 용어 충돌과 표본을 확인합니다. 검수한 항목만 `review`에 기록합니다. 모든 토큰이 처리되어도 번역의 정확성이 자동으로 증명되는 것은 아닙니다.
 
-- macOS: pending release-candidate evidence
-- Windows: pending release-candidate evidence
-- Fresh install and stable-release update: pending release-candidate evidence
-- Resume an in-progress work folder after update: pending release-candidate evidence
-
-## Source processing
-
-- Full text-based research paper: pending release-candidate evidence
-- Selected textbook page range and printed/PDF page jumps: pending release-candidate evidence
-- Scanned/image-only input rejection: pending release-candidate evidence
-- Character anomalies and formula crop handling: pending release-candidate evidence
-- Coverage, sentence order and completed-range validation: pending release-candidate evidence
-
-## Reader behavior
-
-- Sentence click, literal/natural toggle and contextual word popup: pending release-candidate evidence
-- Forward/reverse drag and multi-sentence whole-sentence selection: pending release-candidate evidence
-- Formula-only selection and crop: pending release-candidate evidence
-- Zoom alignment, contents links and page jumps: pending release-candidate evidence
-- Offline operation with no external requests: pending release-candidate evidence
-
-## Known limits
-
-List only limits reproduced or confirmed during a release check. Do not infer platform support from a different operating system, browser, test harness or code path. Scanned PDFs and unreadable or corrupted text extraction are unsupported inputs.
-
-## Release evidence
-
-Add one dated record per release candidate:
+작업에 고정된 런타임으로 `scripts/run.py validate`와 `build`를 실행한 뒤, 해당 런타임의 `browser_cache`를 `PLAYWRIGHT_BROWSERS_PATH`로 지정하고 다음 검사를 실행합니다.
 
 ```text
-Release/tag:
-Date:
-Commit:
-Platform and version:
-Checks run:
-Result and evidence location:
-Failures or limits:
+<runtime_python> <source_snapshot>/scripts/verify_reader.py READER.html --report browser-check.json
 ```
+
+보고서의 실제 OS·CPU·브라우저, 성공 항목과 `skipped`를 확인합니다. 수식이나 목차가 없는 문서에서 해당 항목이 건너뛰어진 것을 성공으로 기록하지 않습니다. 문장 클릭, 두 번역 모드, 단어 팝업, 양방향·페이지 경계 드래그, 수식, 확대, 이동, 외부 요청을 검사하고 원본 대비 배치도 육안으로 확인합니다. 이 검증에는 Python Playwright와 전용 Chromium을 쓰며 Node.js는 필요하지 않습니다.
+
+## 0.1.0 출시 후보 — 2026-09-29
+
+실행 코드 `4cd1f4f`의 [macOS·Windows 전체 검사](https://github.com/kiwidebruyne/pdf-lens/actions/runs/36564863461)가 통과했습니다. 이 기록과 README 수정은 실행 코드를 바꾸지 않습니다.
+
+| 실제 실행 환경 | 결과 |
+| --- | --- |
+| 로컬 macOS 26.5.2, ARM64, Chromium 153.0.8010.12 | 설치·재실행 및 오프라인 HTML 검사 통과 |
+| 로컬 macOS 26.5.2, ARM64, Chrome 154.0.8037.58 | 독립 워커의 PDF→번역→HTML 시험 및 브라우저 검사 통과 |
+| GitHub macOS 26.6.2, ARM64, Chromium 153.0.8010.12 | 아래 전체 자동 검사 통과 |
+| GitHub Windows Server 2025, x64, PowerShell 5.1, Chromium 153.0.8010.12 | 아래 전체 자동 검사 통과 |
+
+Python은 관리형 CPython 3.13.15, PDF 추출은 PyMuPDF 1.28.2, 브라우저 제어는 Python Playwright 1.63.0을 사용했습니다. 설치된 uv는 0.12.20입니다.
+
+검사 내용:
+
+- 개발 도구가 보이지 않는 기본 시스템 PATH에서 시작해 uv·Python·가상환경·Chromium을 설치하고 같은 설치를 다시 실행했습니다. 한글·공백이 있는 전용 Codex 경로를 사용했습니다.
+- Python 테스트 32개와 JavaScript 테스트 12개가 통과했습니다. 범위·쪽수·해시·회전·CropBox 좌표, 원시 문자, 손상 기호 차단, 수식 영역, 전체 문장 단위, 소유권 누락·중복, 문맥 겹침, 작업 버전 고정과 재개를 검사했습니다.
+- 업데이트의 검사 실패 후 기존 설치 보존과 재실행, 잘못된 체크섬·시험판 거부, 활성화 실패 복구는 실패를 주입한 테스트로 확인했습니다. 실제 다운로드 도중 네트워크가 끊기는 상황을 재현한 결과와는 구분합니다.
+- 합성 PDF 2쪽으로 HTML을 생성했습니다. 인쇄/PDF 쪽수, 목차, 수식, 페이지를 넘는 문장을 포함하며 모든 22개 토큰을 처리했습니다.
+- 실제 마우스 드래그와 양방향 포인터·스크롤 기반 페이지 경계 선택을 검사했습니다. 문장 클릭, 직역·의역 내용 전환, 단어 팝업, 수식 이미지, 확대·너비 맞춤, 목차·쪽수 이동이 통과했습니다.
+- 브라우저를 오프라인으로 실행해 외부 HTTP/WebSocket 요청과 JavaScript 오류가 0건임을 확인했습니다. 브라우저 보고서의 건너뛴 항목은 없습니다.
+- 두 OS에서 설치된 제거 명령을 실행해 스킬·전용 런타임이 제거되고 생성된 HTML은 남는 것을 확인했습니다.
+- 새 문맥의 GPT-6 Luna high 워커가 스킬 지침과 원본 합성 PDF만 받아 5문장·17개 문맥 단어 카드·수식 1개를 작성하고 검증·빌드했습니다. 이전 번역·HTML은 제공하지 않았습니다.
+
+## 확인 범위와 제한
+
+- GitHub 러너에는 개발 도구와 VC++ 런타임이 이미 존재합니다. PATH를 제한해 Python·Git·Node.js를 설치 전제로 사용하지 않는 것을 확인했으며, 공장 초기 상태의 소비자 PC를 직접 테스트한 것은 아닙니다.
+- Windows 10/11 개인 PC, Windows ARM64, Intel Mac, Safari·Firefox는 실제 실행하지 않았습니다. VC++ DLL 누락 후 Microsoft 설치 프로그램의 UAC 승인·취소 경로도 실제 재현하지 않았습니다.
+- 새 구현의 회귀 자료는 직접 만든 합성 PDF입니다. 기존 논문·교재 결과의 이전이나 재검수는 하지 않았고, 수백 쪽 전체 처리의 속도·메모리는 측정하지 않았습니다. 실제 다단 문서의 읽기 순서와 언어 품질은 문서별 워커 검수가 필요합니다.
+- 스캔 PDF OCR은 지원하지 않습니다. 미해결 본문 추출 손상은 완성 HTML 생성을 차단합니다.
+- Node.js는 저장소의 개발자용 JavaScript 단위 검사에만 사용하며, 사용자 설치·처리·검증에서는 요구하지 않습니다.
