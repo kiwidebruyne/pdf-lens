@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data:; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
+<title>__READER_TITLE__</title>
+<style>__READER_CSS__</style>
+</head>
+<body>
+<header class="reader-bar"><span id="document-title"></span><nav class="reader-controls" aria-label="읽기 도구"><button id="toc-toggle" type="button" aria-expanded="false" aria-controls="toc-panel" hidden>목차</button><form id="page-jump" hidden><select id="page-kind" aria-label="페이지 번호 종류"><option value="book">책 페이지</option><option value="pdf">PDF 페이지</option></select><input id="page-query" aria-label="이동할 페이지" inputmode="numeric" placeholder="페이지"><button type="submit">이동</button><output id="page-status" role="status"></output></form><button id="zoom-out" aria-label="축소">−</button><output id="zoom-label"></output><button id="zoom-in" aria-label="확대">+</button><button id="fit">너비 맞춤</button></nav></header>
+<aside id="toc-panel" aria-label="목차" hidden></aside>
+<main id="pages" aria-label="원문 페이지"></main>
+<aside id="sentence-popup" class="popup" aria-label="원문과 번역" hidden></aside>
+<aside id="word-popup" class="popup word-popup" aria-label="문맥 속 단어" hidden></aside>
+<script id="reader-data" type="application/json">__READER_DATA__</script>
+<script>__READER_JS__</script>
+</body>
+</html>

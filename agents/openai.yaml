@@ -1,0 +1,6 @@
+interface:
+  display_name: "PDF Lens"
+  short_description: "영어 논문과 교재를 오프라인 한국어 리더로 변환"
+  default_prompt: "Use $pdf-lens to make an offline Korean reading companion for the attached PDF."
+policy:
+  allow_implicit_invocation: true

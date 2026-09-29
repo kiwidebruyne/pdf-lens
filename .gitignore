@@ -1,0 +1,8 @@
+__pycache__/
+*.py[cod]
+.venv/
+.harness/
+output/
+dist/
+*.work/
+.DS_Store

@@ -1,0 +1,58 @@
+name: macOS and Windows
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  clean-setup:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - name: Bootstrap macOS without developer tools on PATH
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          env PATH=/usr/bin:/bin:/usr/sbin:/sbin /bin/sh scripts/bootstrap.sh --codex-home "$RUNNER_TEMP/새 설치 Codex"
+          env PATH=/usr/bin:/bin:/usr/sbin:/sbin /bin/sh scripts/bootstrap.sh --codex-home "$RUNNER_TEMP/새 설치 Codex"
+      - name: Bootstrap Windows without developer tools on PATH
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          $env:PATH = "$env:SystemRoot\system32;$env:SystemRoot;$env:SystemRoot\System32\WindowsPowerShell\v1.0"
+          & .\scripts\bootstrap.ps1 -CodexHome "$env:RUNNER_TEMP\새 설치 Codex"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & .\scripts\bootstrap.ps1 -CodexHome "$env:RUNNER_TEMP\새 설치 Codex"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Python and real-browser checks on macOS
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          test_python=$("$RUNNER_TEMP/새 설치 Codex/tool-envs/pdf-lens/uv/uv" python find --managed-python 3.13)
+          "$test_python" tests/ci_check.py --codex-home "$RUNNER_TEMP/새 설치 Codex" --output "$RUNNER_TEMP/검증 결과"
+        env:
+          UV_PYTHON_INSTALL_DIR: ${{ runner.temp }}/새 설치 Codex/tool-envs/pdf-lens/python
+      - name: Python and real-browser checks on Windows
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          $env:UV_PYTHON_INSTALL_DIR = "$env:RUNNER_TEMP\새 설치 Codex\tool-envs\pdf-lens\python"
+          $testPython = (& "$env:RUNNER_TEMP\새 설치 Codex\tool-envs\pdf-lens\uv\uv.exe" python find --managed-python 3.13).Trim()
+          & $testPython tests/ci_check.py --codex-home "$env:RUNNER_TEMP\새 설치 Codex" --output "$env:RUNNER_TEMP\검증 결과"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - uses: actions/setup-node@v7.0.0
+        with:
+          node-version: '24'
+      - name: Reader unit tests (contributors only)
+        run: node --test tests/test_reader.mjs
+      - uses: actions/upload-artifact@v7.0.1
+        if: always()
+        with:
+          name: verification-${{ runner.os }}
+          path: ${{ runner.temp }}/검증 결과/browser.json
+          if-no-files-found: ignore
