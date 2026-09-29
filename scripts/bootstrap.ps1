@@ -117,3 +117,4 @@ if ($exitCode -ne 0) {
 }
 if ($exitCode -ne 0) { throw "PDF Lens setup failed (exit $exitCode). See the message above and rerun bootstrap after resolving it." }
 if ($Action -eq "uninstall") { Remove-Item $toolDir -Recurse -Force }
+exit 0

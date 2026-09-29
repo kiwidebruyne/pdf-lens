@@ -58,6 +58,26 @@ jobs:
           node-version: '24'
       - name: Reader unit tests (contributors only)
         run: node --test tests/test_reader.mjs
+      - name: Uninstall leaves readers intact on macOS
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          sh "$RUNNER_TEMP/새 설치 Codex/skills/pdf-lens/scripts/bootstrap.sh" --codex-home "$RUNNER_TEMP/새 설치 Codex" --uninstall
+          test ! -d "$RUNNER_TEMP/새 설치 Codex/skills/pdf-lens"
+          test ! -d "$RUNNER_TEMP/새 설치 Codex/tool-envs/pdf-lens"
+          test -f "$RUNNER_TEMP/검증 결과/새 문서/sample.html"
+      - name: Uninstall leaves readers intact on Windows
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          $testHome = Join-Path $env:RUNNER_TEMP $env:PDF_LENS_TEST_HOME_NAME
+          $testOutput = Join-Path $env:RUNNER_TEMP $env:PDF_LENS_TEST_OUTPUT_NAME
+          $bootstrap = Join-Path $testHome "skills\pdf-lens\scripts\bootstrap.ps1"
+          & $bootstrap -CodexHome $testHome -Action uninstall
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if (Test-Path (Join-Path $testHome "skills\pdf-lens")) { throw "Skill not removed" }
+          if (Test-Path (Join-Path $testHome "tool-envs\pdf-lens")) { throw "Runtime not removed" }
+          if (-not (Get-ChildItem -Path $testOutput -Filter sample.html -Recurse)) { throw "Reader was removed" }
       - uses: actions/upload-artifact@v7.0.1
         if: always()
         with:
