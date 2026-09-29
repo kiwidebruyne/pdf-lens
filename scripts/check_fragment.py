@@ -101,9 +101,12 @@ def main():
     source = read_json(args.work / 'annotations.json')
     fragment = read_json(args.fragment)
     ownership_errors = []
+    ownership_token_ids = None
     if args.worklist:
         try:
-            validate_fragment(args.work, read_json(args.worklist), fragment, args.chunk)
+            worklist = read_json(args.worklist)
+            ownership = validate_fragment(args.work, worklist, fragment, args.chunk)
+            ownership_token_ids = set(ownership['owned_tokens'])
         except (ValueError, KeyError, TypeError, AttributeError) as error:
             ownership_errors.append(str(error))
     if source['version'] != 2:
@@ -115,25 +118,28 @@ def main():
                              for page in range(source['scope']['first_page'], source['scope']['last_page'] + 1)}
     source['review'] = {'language': True, 'layout': True, 'coverage': True,
                         'notes': 'Temporary structural fragment check; actual review remains unset.'}
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.json') as file:
-        json.dump(source, file, ensure_ascii=False)
-        file.flush()
-        _, _, report = validate(args.work, Path(file.name))
+    with tempfile.TemporaryDirectory() as directory:
+        temporary_annotation = Path(directory) / 'fragment.json'
+        temporary_annotation.write_text(json.dumps(source, ensure_ascii=False), encoding='utf-8')
+        _, _, report = validate(args.work, temporary_annotation)
     errors = list(ownership_errors)
     for error in report['errors']:
         if 'source tokens unassigned:' in error:
             continue
-        match = re.match(r'^p(\d+)t\d+: unusual extracted glyph', error)
-        if match and match.group(1) not in owned_pages:
-            continue
+        match = re.match(r'^(p\d+t\d+): unusual extracted glyph', error)
+        if match:
+            if ownership_token_ids is not None:
+                if match.group(1) not in ownership_token_ids:
+                    continue
+            elif match.group(1)[1:match.group(1).index('t')] not in owned_pages:
+                continue
         errors.append(error)
     prepared = read_json(args.work / 'prepared.json')
     if args.audit_out:
         args.audit_out.parent.mkdir(parents=True, exist_ok=True)
         args.audit_out.write_text(audit_report(fragment, prepared), encoding='utf-8')
     if args.worklist:
-        expected_owned = set(next(chunk['owned_tokens'] for chunk in read_json(args.worklist)['chunks']
-                                  if chunk['id'] == args.chunk)) if not ownership_errors else set()
+        expected_owned = ownership_token_ids or set()
     else:
         expected_owned = {token['id'] for page in prepared['pages'] if str(page['number']) in owned_pages
                           for token in page['tokens']}

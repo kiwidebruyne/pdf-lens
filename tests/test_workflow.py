@@ -2,6 +2,7 @@ import copy
 import hashlib
 import json
 import sys
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -149,6 +150,34 @@ class WorkflowTests(unittest.TestCase):
             else:
                 workflow.validate_fragment_structure(
                     self.work, self.prepared, fragment, self.worklist['chunks'][0])
+
+    def test_check_fragment_cli_ignores_same_page_other_chunk_anomaly(self):
+        prepared = copy.deepcopy(self.prepared)
+        prepared['pages'][0]['tokens'].append({
+            'id': 'p1t1', 'text': 'context', 'box': [25, 1, 20, 5], 'block': 0, 'line': 0, 'chars': [{}]})
+        self.write(self.work / 'prepared.json', prepared)
+        self.prepared = prepared
+        (self.work / 'anomalies.json').write_text(json.dumps([
+            {'token': 'p1t1', 'codepoints': ['U+0002'], 'glyphs': ['p1c1']}]))
+        manifest = json.loads((self.work / 'manifest.json').read_text())
+        manifest['files']['prepared.json'] = workflow.digest(self.work / 'prepared.json')
+        manifest['files']['anomalies.json'] = workflow.digest(self.work / 'anomalies.json')
+        self.write(self.work / 'manifest.json', manifest)
+        self.plan = {'chunks': [
+            {'id': 'a', 'owned_tokens': ['p1t0'], 'context_tokens': ['p1t1']},
+            {'id': 'b', 'owned_tokens': ['p1t1', 'p2t0'], 'context_tokens': ['p1t0']},
+        ]}
+        self.worklist = workflow.make_worklist(self.work, self.plan)
+        worklist_path = self.root / 'worklist.json'
+        fragment_path = self.root / 'fragment.json'
+        self.write(worklist_path, self.worklist)
+        self.write(fragment_path, self.fragment('a', ['p1t0']))
+        script = Path(__file__).resolve().parents[1] / 'scripts' / 'check_fragment.py'
+        result = subprocess.run([
+            sys.executable, str(script), '--work', str(self.work), '--fragment', str(fragment_path),
+            '--worklist', str(worklist_path), '--chunk', 'a'], capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertIn('"structural_ok_excluding_other_fragments": true', result.stdout)
 
     def test_prepared_identity_prevents_resume_on_changed_preparation(self):
         changed = copy.deepcopy(self.prepared)

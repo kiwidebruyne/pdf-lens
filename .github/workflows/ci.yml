@@ -12,6 +12,9 @@ jobs:
       matrix:
         os: [macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
+    env:
+      PDF_LENS_TEST_HOME: ${{ runner.temp }}/새 설치 Codex
+      PDF_LENS_TEST_OUTPUT: ${{ runner.temp }}/검증 결과
     steps:
       - uses: actions/checkout@v7.0.1
       - name: Bootstrap macOS without developer tools on PATH
@@ -25,9 +28,9 @@ jobs:
         shell: powershell
         run: |
           $env:PATH = "$env:SystemRoot\system32;$env:SystemRoot;$env:SystemRoot\System32\WindowsPowerShell\v1.0"
-          & .\scripts\bootstrap.ps1 -CodexHome "$env:RUNNER_TEMP\새 설치 Codex"
+          & .\scripts\bootstrap.ps1 -CodexHome $env:PDF_LENS_TEST_HOME
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          & .\scripts\bootstrap.ps1 -CodexHome "$env:RUNNER_TEMP\새 설치 Codex"
+          & .\scripts\bootstrap.ps1 -CodexHome $env:PDF_LENS_TEST_HOME
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Python and real-browser checks on macOS
         if: runner.os == 'macOS'
@@ -41,9 +44,10 @@ jobs:
         if: runner.os == 'Windows'
         shell: powershell
         run: |
-          $env:UV_PYTHON_INSTALL_DIR = "$env:RUNNER_TEMP\새 설치 Codex\tool-envs\pdf-lens\python"
-          $testPython = (& "$env:RUNNER_TEMP\새 설치 Codex\tool-envs\pdf-lens\uv\uv.exe" python find --managed-python 3.13).Trim()
-          & $testPython tests/ci_check.py --codex-home "$env:RUNNER_TEMP\새 설치 Codex" --output "$env:RUNNER_TEMP\검증 결과"
+          $env:UV_PYTHON_INSTALL_DIR = Join-Path $env:PDF_LENS_TEST_HOME "tool-envs\pdf-lens\python"
+          $uv = Join-Path $env:PDF_LENS_TEST_HOME "tool-envs\pdf-lens\uv\uv.exe"
+          $testPython = (& $uv python find --managed-python 3.13).Trim()
+          & $testPython tests/ci_check.py --codex-home $env:PDF_LENS_TEST_HOME --output $env:PDF_LENS_TEST_OUTPUT
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - uses: actions/setup-node@v7.0.0
         with:
