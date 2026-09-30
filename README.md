@@ -92,4 +92,4 @@ PDF Lens 스킬과 전용 도구를 제거해 줘. 내가 만든 작업 파일�
 
 새 PDF 작업을 시작할 때 최신 안정판을 자동 확인합니다. 업데이트가 실패하면 가능한 경우 기존 설치로 계속하며, 더 높은 로컬 버전을 이전 공개 버전으로 되돌리지 않습니다.
 
-설치 경로는 macOS와 Windows용입니다. v0.3 실시간 리더는 macOS ARM64·Chromium에서 확인했고, Windows 실시간 동작은 아직 확인하지 않았습니다. 자세한 확인 환경과 제한은 [검증 현황](docs/verification.md), Codex가 수행할 설치 절차는 [설치 안내](docs/installation.md)를 참고하세요.
+설치 경로는 macOS와 Windows용입니다. v0.3 실시간·오프라인 리더는 로컬 macOS ARM64와 GitHub의 macOS ARM64·Windows Server 2025 x64 환경에서 Chromium으로 확인했습니다. 개인 Windows 10/11 PC와 Safari·Firefox는 아직 직접 시험하지 않았습니다. 자세한 확인 환경과 제한은 [검증 현황](docs/verification.md), Codex가 수행할 설치 절차는 [설치 안내](docs/installation.md)를 참고하세요.
