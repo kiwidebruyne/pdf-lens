@@ -9,6 +9,7 @@
 </head>
 <body>
 <header class="reader-bar"><span id="document-title"></span><nav class="reader-controls" aria-label="읽기 도구"><button id="toc-toggle" type="button" aria-expanded="false" aria-controls="toc-panel" hidden>목차</button><form id="page-jump" hidden><select id="page-kind" aria-label="페이지 번호 종류"><option value="book">책 페이지</option><option value="pdf">PDF 페이지</option></select><input id="page-query" aria-label="이동할 페이지" inputmode="numeric" placeholder="페이지"><button type="submit">이동</button><output id="page-status" role="status"></output></form><button id="zoom-out" aria-label="축소">−</button><output id="zoom-label"></output><button id="zoom-in" aria-label="확대">+</button><button id="fit">너비 맞춤</button></nav></header>
+<div id="live-bar" class="live-bar" hidden><output id="live-status" role="status"></output><a id="final-reader" hidden>완성 HTML 저장</a></div>
 <aside id="toc-panel" aria-label="목차" hidden></aside>
 <main id="pages" aria-label="원문 페이지"></main>
 <aside id="sentence-popup" class="popup" aria-label="원문과 번역" hidden></aside>

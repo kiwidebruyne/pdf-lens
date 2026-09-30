@@ -100,6 +100,19 @@ class SetupTests(unittest.TestCase):
                     installer.activate(source, home, "1.2.3", runtime_data, "source")
             self.assertEqual((skill / "SKILL.md").read_text(encoding="utf-8"), "working skill")
 
+    def test_update_does_not_downgrade_local_release(self):
+        with tempfile.TemporaryDirectory() as temp:
+            home = Path(temp)
+            skill, _, _ = installer.paths(home)
+            skill.mkdir(parents=True)
+            state = skill / 'install-state.json'
+            state.write_text(json.dumps({'version': '0.2.0', 'source': 'source'}))
+            before = state.read_bytes()
+            with patch.object(installer, 'release_info', return_value=('0.1.0', b'old')), patch.object(installer, 'run_runtime') as run:
+                installer.update(home)
+            run.assert_not_called()
+            self.assertEqual(state.read_bytes(), before)
+
     def test_uninstall_is_scoped_to_pdf_lens_owned_paths(self):
         with tempfile.TemporaryDirectory() as temp:
             home = Path(temp) / "codex"

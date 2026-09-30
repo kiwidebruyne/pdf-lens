@@ -112,6 +112,22 @@ class RunTests(unittest.TestCase):
         self.assertEqual(processor_command[0], str(self.tool_dir / "runtimes" / self.old_id / "venv" / "bin" / "python"))
         self.assertEqual(processor_command[1], str(self.tool_dir / "runtimes" / self.old_id / "source_snapshot" / "scripts" / "paper_reader.py"))
 
+    def test_live_commands_use_the_work_pin_and_do_not_update(self):
+        self.write_install_state(self.new_id)
+        self.write_prepared('0.1.0')
+        self.write_execution(self.old_id)
+        snapshot = self.tool_dir / 'runtimes' / self.old_id / 'source_snapshot'
+        (snapshot / 'scripts/live_reader.py').write_text('# fixture live processor\n')
+        common = ['--work', str(self.work), '--worklist', str(self.work / 'worklist.json'),
+                  '--fragments', str(self.work / 'fragments')]
+        for argv in [['serve', *common], ['publish', *common, '--chunk', 'first',
+                                        '--input', str(self.base / 'draft.json')]]:
+            result, commands = self.invoke(argv)
+            self.assertEqual(result, 0)
+            self.assertEqual(len(commands), 1)
+            self.assertEqual(commands[0][0][1], str(snapshot / 'scripts/live_reader.py'))
+            self.assertFalse(any(command[-1:] == ['update'] for command, _ in commands))
+
     def test_resume_uses_retained_runtime_snapshot_after_newer_install(self):
         self.write_install_state(self.new_id)
         self.write_prepared("0.1.0")
@@ -134,6 +150,35 @@ class RunTests(unittest.TestCase):
                 runner.main(["validate", "--work", str(self.work), "--annotations", str(self.base / "annotations.json")])
 
         run.assert_not_called()
+
+    def test_migrated_work_uses_new_processor_and_keeps_extraction_pin(self):
+        self.write_install_state(self.new_id)
+        self.write_prepared('0.1.0')
+        self.write_execution(self.old_id)
+        self.write_json(self.work / 'migration.json', {
+            'version': 1, 'annotation_version': 3,
+            'extraction_runtime_id': self.old_id,
+            'extraction_processor_version': '0.1.0',
+            'processor_runtime_id': self.new_id,
+        })
+        before = (self.work / 'execution.json').read_bytes()
+        result, commands = self.invoke(['build', '--work', str(self.work), '--annotations', str(self.work / 'annotations.json'), '--output', str(self.base / 'reader.html')])
+        self.assertEqual(result, 0)
+        self.assertIn(self.new_id, commands[0][0][1])
+        self.assertEqual((self.work / 'execution.json').read_bytes(), before)
+
+    def test_migrated_prepare_checks_original_extraction_pin(self):
+        self.write_install_state(self.new_id)
+        self.write_prepared('0.1.0')
+        self.write_execution(self.old_id)
+        self.write_json(self.work/'migration.json',{'version':1,'annotation_version':3,
+            'extraction_runtime_id':self.old_id,'extraction_processor_version':'0.1.0',
+            'processor_runtime_id':self.new_id})
+        result,commands=self.invoke(['prepare',str(self.pdf),'--work',str(self.work)])
+        self.assertEqual(result,0)
+        command=commands[0][0]
+        self.assertEqual(command[command.index('--runtime-id')+1],self.old_id)
+        self.assertIn(self.new_id,command[1])
 
     def test_source_checkout_uses_its_development_processor_without_update(self):
         source = self.base / "source-checkout"

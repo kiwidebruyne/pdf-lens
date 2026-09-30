@@ -10,15 +10,17 @@ Use this workflow for an English-language research paper the person wants to rea
 
 Prepare the whole paper by default in a stable per-document work folder using `scripts/run.py prepare PDF --work WORK`. This normal entrypoint checks for the latest stable release only for a new work folder and pins that work to its runtime. Do not invoke the internal `paper_reader.py` directly for a normal task.
 
+After extraction, open the original-page live reader before waiting for translations. Use the [worklist and sentence publication workflow](parallel-workflow.md), even for one author. Publish checked sentences as they are completed.
+
 ## Author the full paper
 
 Include the title, author/front matter, abstract, headings, body, appendices, footnotes, captions and readable text in tables and figures. Correct sentence order from the page images, particularly at column changes and page breaks. Do not mistake `et al.`, `Fig.`, `e.g.`, decimals or citation markers for sentence endings. A sentence that continues across a page remains one annotation sentence.
 
 Exclude only reference-list entries, running headers/footers, page numbers and verified nonlinguistic marks as allowed by the [data contract](data-contract.md). Preserve image-only lettering visually; it has no selectable token card and must be mentioned as untranslated in the completion report.
 
-Every included sentence receives one whole-sentence translation unit and every included English prose token receives its contextual word card. Use the [translation guide](translation-guide.md) for literal and natural Korean; use the [data contract](data-contract.md) for exact annotation fields, math crops and validation requirements.
+Every included sentence receives one natural translation and every included English prose token receives its contextual word card. Use the [translation guide](translation-guide.md) for natural Korean; use the [data contract](data-contract.md) for exact annotation fields, math crops and validation requirements.
 
-After authoring `annotations.json`, run `scripts/run.py validate --work WORK --annotations ANNOTATIONS`, then `scripts/run.py build --work WORK --annotations ANNOTATIONS --output OUTPUT_HTML`. The runner uses the version pinned in the work folder for both operations.
+On completion the live server merges, validates and builds WORK/reader.html. Supply the resulting file to the person. The normal validate/build commands remain available for diagnosis or an explicitly chosen output path, using the work's pinned runtime.
 
 ## Review and deliver
 

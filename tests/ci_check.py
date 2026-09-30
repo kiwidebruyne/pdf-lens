@@ -26,6 +26,9 @@ def main():
     run(python,'tests/make_sample.py',args.output/'새 문서')
     run(python,'scripts/verify_reader.py',args.output/'새 문서/sample.html',
         '--report',args.output/'browser.json')
+    with (args.output/'live-browser.json').open('w',encoding='utf-8') as report:
+        subprocess.run([str(python),'tests/verify_live_browser.py',str(args.output/'실시간 읽기')],
+                       cwd=root,env=env,check=True,stdout=report)
     run(python,'scripts/package_release.py','--output',args.output/'release')
 
 

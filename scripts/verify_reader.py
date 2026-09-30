@@ -6,7 +6,7 @@ import platform
 from pathlib import Path
 
 
-def verify(path, expected_version=2, executable=None):
+def verify(path, expected_version=3, executable=None):
     from playwright.sync_api import sync_playwright
     checks, skipped, errors, remote = [], [], [], []
     with sync_playwright() as playwright:
@@ -43,26 +43,24 @@ def verify(path, expected_version=2, executable=None):
             assert page.locator('#sentence-popup .korean').count()
             expected_translation = page.evaluate('''token => {
               const d=JSON.parse(document.getElementById('reader-data').textContent);
-              const u=d.sentences.find(s=>s.tokens.includes(token)).units[0];
+              const u=d.sentences.find(s=>s.tokens.includes(token));
               const text=parts=>typeof parts==='string'?parts:parts.filter(p=>p.type==='text').map(p=>p.text).join('');
-              return {literal:u.literal.map(c=>text(c.parts||c.text)).join(' / '), natural:text(u.natural)};
+              return text(u.natural);
             }''', info['lexical'])
             korean_text = lambda: page.locator('#sentence-popup .korean').inner_text().strip()
             normalize = lambda value: ' '.join(value.split())
             # For formulas, image alt labels are not included in innerText.
-            assert normalize(korean_text()) == normalize(expected_translation['literal'])
+            assert normalize(korean_text()) == normalize(expected_translation)
             page.locator('#sentence-popup .english-word').first.click()
             assert page.locator('#word-popup').is_visible(), 'Word popup failed'
             assert page.locator('#sentence-popup').is_visible(), 'Word popup replaced sentence'
+            card = page.locator('#word-popup').inner_text()
+            labels = [label.strip() for label in page.locator('#word-popup strong').all_inner_texts()]
+            assert '기본 뜻' in card and labels == ['문맥 뜻']
             page.keyboard.press('Escape')
             assert not page.locator('#word-popup').is_visible()
-            page.locator('.mode-toggle').click()
-            assert page.locator('.mode-toggle').get_attribute('aria-pressed') == 'true'
-            assert normalize(korean_text()) == normalize(expected_translation['natural'])
-            page.locator('.mode-toggle').click()
-            assert page.locator('.mode-toggle').get_attribute('aria-pressed') == 'false'
-            assert normalize(korean_text()) == normalize(expected_translation['literal'])
-            checks.extend(['sentence click', 'nested vocabulary popup', 'translation toggle'])
+            assert page.locator('.mode-toggle').count() == 0
+            checks.extend(['sentence click', 'nested vocabulary popup', 'single natural translation'])
 
             def expected_tokens(first, last):
                 for formula in info['math']:
@@ -76,7 +74,7 @@ def verify(path, expected_version=2, executable=None):
                 assert page.locator('#sentence-popup').is_visible(), 'Drag did not open translation'
                 actual = set(page.locator('.source-word.selected').evaluate_all('(nodes)=>nodes.map(n=>n.dataset.token)'))
                 assert actual, 'Drag did not select text'
-                if expected_version == 2:
+                if expected_version == 3:
                     assert actual == expected_tokens(first, last), 'Selection did not expand to whole touched sentences/formula'
 
             # One real mouse drag; boundary-spanning checks below simulate scrolling pointer events.
@@ -124,19 +122,17 @@ def verify(path, expected_version=2, executable=None):
                 skipped.append('page-boundary drag: single text page')
             if info['math']:
                 page.locator('.math-hit').first.click()
-                for mode in range(2):
-                    assert page.locator('#sentence-popup .english .math-crop img').count()
-                    assert page.locator('#sentence-popup .korean .math-crop img').count()
-                    page.locator('#sentence-popup .english .math-crop img').first.evaluate('(img)=>img.decode()')
-                    page.locator('.mode-toggle').click()
+                assert page.locator('#sentence-popup .english .math-crop img').count()
+                assert page.locator('#sentence-popup .korean .math-crop img').count()
+                page.locator('#sentence-popup .english .math-crop img').first.evaluate('(img)=>img.decode()')
                 formula = next((m for m in info['math'] if len(m)>1), None)
                 if formula:
                     drag(formula[0],formula[-1])
                     assert page.locator('#sentence-popup .english .math-crop img').count()
-                checks.append('original formula in both modes and atomic selection')
+                checks.append('original formula crop and atomic selection')
             else:
                 skipped.append('formulas: none annotated')
-            if expected_version == 2:
+            if expected_version == 3:
                 if info['toc']:
                     page.locator('#toc-toggle').click()
                     assert page.locator('#toc-panel').is_visible()
@@ -172,7 +168,7 @@ def verify(path, expected_version=2, executable=None):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('html', type=Path)
-    parser.add_argument('--expect-version', type=int, choices=(2,), default=2)
+    parser.add_argument('--expect-version', type=int, choices=(3,), default=3)
     parser.add_argument('--executable', help='Optional existing Chromium/Chrome executable for local diagnostics')
     parser.add_argument('--report', type=Path)
     args = parser.parse_args()

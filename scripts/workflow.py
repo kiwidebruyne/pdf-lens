@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Deterministic worklists and merging for parallel version-2 annotations."""
+"""Deterministic worklists and merging for scoped annotations."""
 import argparse
 import hashlib
 import json
@@ -113,7 +113,7 @@ def validate_fragment(work, worklist, fragment, chunk_id):
               'context_tokens': expected['context_tokens']}
     if metadata != wanted:
         raise ValueError(f'{chunk_id}: fragment ownership metadata does not match worklist')
-    if fragment.get('version') != 2 or fragment.get('source_sha256') != prepared['source']['sha256'] or fragment.get('scope') != prepared['scope']:
+    if fragment.get('version') not in (2, 3) or fragment.get('source_sha256') != prepared['source']['sha256'] or fragment.get('scope') != prepared['scope']:
         raise ValueError(f'{chunk_id}: fragment source/scope mismatch')
     owned = set(expected['owned_tokens'])
     seen = set()
@@ -142,9 +142,16 @@ def validate_fragment(work, worklist, fragment, chunk_id):
 
 def validate_fragment_structure(work, prepared, fragment, chunk):
     """Run the production validator while allowing tokens owned by other chunks to remain absent."""
-    source = read_json(work / 'annotations.json')
-    for key in ('lexicon', 'sentences', 'math', 'excluded', 'toc'):
-        source[key] = fragment.get(key, source.get(key, [] if key in ('sentences', 'excluded', 'toc') else {}))
+    source = {key: value for key, value in fragment.items() if key != '_chunk'}
+    source.setdefault('title', 'Fragment structural check')
+    source.setdefault('language', 'en')
+    source.setdefault('sentences', [])
+    source.setdefault('excluded', [])
+    source.setdefault('unselectable_pages', [])
+    source.setdefault('toc', [])
+    source.setdefault('math', {})
+    if fragment['version'] == 2:
+        source.setdefault('lexicon', {})
     owned_tokens = set(chunk['owned_tokens'])
     local_labels = fragment.get('page_labels', {})
     source['page_labels'] = {
@@ -217,15 +224,19 @@ def merge_fragments(work, worklist, fragments_path):
     missing = [chunk['id'] for chunk in worklist['chunks'] if chunk['id'] not in fragments]
     if missing:
         raise ValueError('Missing validated fragments: ' + ', '.join(missing))
-    starter = read_json(work / 'annotations.json')
+    starter = fragments[worklist['chunks'][0]['id']]
     result = {key: value for key, value in starter.items() if key in (
         'version', 'source_sha256', 'title', 'language', 'lexicon', 'sentences',
         'excluded', 'unselectable_pages', 'review', 'scope', 'page_labels', 'toc', 'math')}
-    result['version'] = 2
+    versions = {part['version'] for part in fragments.values()}
+    if len(versions) != 1:
+        raise ValueError('Fragments must use one annotation version')
+    result['version'] = versions.pop()
     result['source_sha256'] = prepared['source']['sha256']
     result['scope'] = prepared['scope']
     result['sentences'] = []
     result['excluded'] = []
+    result.setdefault('unselectable_pages', [])
     result['lexicon'] = {}
     result['math'] = {}
     result['toc'] = []
@@ -235,10 +246,11 @@ def merge_fragments(work, worklist, fragments_path):
     chosen_language = None
     for chunk in worklist['chunks']:
         part = fragments[chunk['id']]
-        for key, value in part.get('lexicon', {}).items():
-            if key in result['lexicon'] and result['lexicon'][key] != value:
-                raise ValueError(f'Conflicting lexicon key {key!r}')
-            result['lexicon'][key] = value
+        if result['version'] == 2:
+            for key, value in part.get('lexicon', {}).items():
+                if key in result['lexicon'] and result['lexicon'][key] != value:
+                    raise ValueError(f'Conflicting lexicon key {key!r}')
+                result['lexicon'][key] = value
         for key, value in part.get('math', {}).items():
             if key in result['math'] and result['math'][key] != value:
                 raise ValueError(f'Conflicting math key {key!r}')
@@ -276,8 +288,26 @@ def merge_fragments(work, worklist, fragments_path):
     if set(labels) != set(page_numbers):
         raise ValueError('Fragments must provide one printed page label per selected page')
     result['page_labels'] = {page: labels[page] for page in page_numbers}
-    result['review'] = {'language': False, 'layout': False, 'coverage': False,
-                        'notes': 'Parallel fragments merged; full language, layout, and coverage review is pending.'}
+    if result['version'] == 3:
+        result.pop('lexicon', None)
+    if result['version'] == 3:
+        writer_reviews = [(chunk['id'], fragments[chunk['id']].get('review'))
+                          for chunk in worklist['chunks']]
+        review_flags = {flag: all(
+            isinstance(review, dict) and review.get(flag) is True and
+            isinstance(review.get('notes'), str) and bool(review['notes'].strip())
+            for _, review in writer_reviews)
+            for flag in ('language', 'layout', 'coverage')}
+        notes = [f"{chunk_id}: {review['notes'].strip()}" for chunk_id, review in writer_reviews
+                 if isinstance(review, dict) and isinstance(review.get('notes'), str)
+                 and review['notes'].strip()]
+        if not all(review_flags.values()):
+            notes.append('Writer review pending for one or more fragments.')
+        result['review'] = review_flags
+        result['review']['notes'] = '\n'.join(notes)
+    else:
+        result['review'] = {'language': False, 'layout': False, 'coverage': False,
+                            'notes': 'Parallel fragments merged; full language, layout, and coverage review is pending.'}
     complete = copy_json(result)
     complete['review'] = {'language': True, 'layout': True, 'coverage': True,
                           'notes': 'Temporary structural validation only; review remains pending.'}

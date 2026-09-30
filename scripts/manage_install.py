@@ -194,8 +194,8 @@ def update(home: Path) -> None:
         raise RuntimeError("PDF Lens is not installed; use `install --source PATH` first")
     version, archive = release_info()
     old_state = json.loads((skill / "install-state.json").read_text(encoding="utf-8"))
-    if old_state.get("version") == version:
-        print(f"PDF Lens {version} is already installed.")
+    if tuple(map(int, old_state["version"].split("."))) >= tuple(map(int, version.split("."))):
+        print(f"PDF Lens {old_state['version']} is installed; release {version} will not replace it.")
         return
     with tempfile.TemporaryDirectory(prefix="pdf-lens-update-") as temp:
         source = extract_release(archive, Path(temp) / "archive")

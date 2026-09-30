@@ -47,3 +47,11 @@ The user's source PDF, work folder and completed HTML are separate from the inst
 ## Uninstall
 
 Only uninstall when the user requests it. On macOS, resolve Codex home as above and run `sh "$codex_home/skills/pdf-lens/scripts/bootstrap.sh" --uninstall`. On Windows, resolve `$codexHome` as above and run `powershell -ExecutionPolicy Bypass -File "$codexHome\skills\pdf-lens\scripts\bootstrap.ps1" -Action uninstall`. It removes PDF Lens-owned skill/runtime files and leaves document work folders and generated readers in place. Do not manually remove shared Codex folders.
+
+## Local v0.2.0 and legacy work
+
+Install a tested checkout with `scripts/manage_install.py install --source PATH`. Updates never replace it with an equal or lower public release. Use `scripts/run.py migrate --work OLD --output NEW` for legacy v2 annotations; it copies the folder and leaves source PDF, extracted v2 artifacts and original execution.json unchanged. migration.json records original extraction and current processing runtime separately. Resume/build uses the new processing pin for the copied folder. Existing unmigrated jobs retain their old runtime.
+
+## Local v0.3.0 live reader
+
+Install the tested v0.3.0 checkout using the same local install command. It adds `serve` and `publish` without changing annotation v3. Existing work keeps its recorded runtime; a v0.2.0 pin does not gain live commands automatically. New v0.3.0 work can open the original preview before authoring, recover saved publications after restarting `serve`, and produce the final offline HTML automatically when coverage and reviews are complete.

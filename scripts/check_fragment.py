@@ -12,7 +12,7 @@ import re
 import tempfile
 
 from paper_reader import read_json, validate
-from workflow import validate_fragment
+from workflow import validate_fragment, validate_fragment_structure
 
 
 def rendered_parts(value):
@@ -39,6 +39,12 @@ def audit_report(fragment, prepared):
         if not ids:
             continue
         lines.extend([f"## {sentence.get('id', '')} · {ids[0]}–{ids[-1]}", ''])
+        if fragment.get('version') == 3:
+            english = ' '.join(tokens.get(key, f'[UNKNOWN:{key}]') for key in ids)
+            natural = rendered_parts(sentence.get('natural'))
+            lines.extend([f'- EN: {json.dumps(english, ensure_ascii=False)}',
+                          f'- 의역: {json.dumps(natural, ensure_ascii=False)}', ''])
+            continue
         whole = next((unit for unit in sentence.get('units', [])
                       if unit.get('start') == 0 and unit.get('end') == len(ids)), None)
         for unit in [whole] if whole else []:
@@ -98,7 +104,7 @@ def main():
     args = parser.parse_args()
     if bool(args.worklist) != bool(args.chunk):
         parser.error('--worklist and --chunk must be supplied together')
-    source = read_json(args.work / 'annotations.json')
+    prepared = read_json(args.work / 'prepared.json')
     fragment = read_json(args.fragment)
     ownership_errors = []
     ownership_token_ids = None
@@ -109,13 +115,21 @@ def main():
             ownership_token_ids = set(ownership['owned_tokens'])
         except (ValueError, KeyError, TypeError, AttributeError) as error:
             ownership_errors.append(str(error))
-    if source['version'] != 2:
+    if prepared.get('version') != 2:
         parser.error('fragment check requires scoped version-2 preparation')
-    for key in ('lexicon', 'sentences', 'math', 'excluded', 'toc'):
-        source[key] = fragment.get(key, source[key])
+    source = {key: value for key, value in fragment.items() if key != '_chunk'}
+    source.setdefault('title', 'Fragment structural check')
+    source.setdefault('language', 'en')
+    source.setdefault('sentences', [])
+    source.setdefault('excluded', [])
+    source.setdefault('unselectable_pages', [])
+    source.setdefault('toc', [])
+    source.setdefault('math', {})
+    if fragment.get('version') == 2:
+        source.setdefault('lexicon', {})
     owned_pages = set(map(str, fragment.get('page_labels', {})))
     source['page_labels'] = {str(page): fragment.get('page_labels', {}).get(str(page), str(page))
-                             for page in range(source['scope']['first_page'], source['scope']['last_page'] + 1)}
+                             for page in range(prepared['scope']['first_page'], prepared['scope']['last_page'] + 1)}
     source['review'] = {'language': True, 'layout': True, 'coverage': True,
                         'notes': 'Temporary structural fragment check; actual review remains unset.'}
     with tempfile.TemporaryDirectory() as directory:
@@ -134,7 +148,6 @@ def main():
             elif match.group(1)[1:match.group(1).index('t')] not in owned_pages:
                 continue
         errors.append(error)
-    prepared = read_json(args.work / 'prepared.json')
     if args.audit_out:
         args.audit_out.parent.mkdir(parents=True, exist_ok=True)
         args.audit_out.write_text(audit_report(fragment, prepared), encoding='utf-8')

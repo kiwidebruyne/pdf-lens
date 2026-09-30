@@ -8,71 +8,34 @@ Prepare, validate and build through the installed `scripts/run.py`, which dispat
 
 The retained source PDF, prepared data, SVGs and manifest are bound by source and artifact hashes to the work folder. Do not hand-edit them. Correct logical reading order and language only in annotations. If source text, glyph identity or geometry cannot be recovered from the page image, stop and report the affected page rather than translating a guess.
 
-## Annotations
+## Annotations v3
 
-New v2 annotations contain `version: 2`, `source_sha256`, `scope`, `title`, `language`, `page_labels`, `toc`, `math`, `lexicon`, `sentences`, `excluded`, `unselectable_pages` and `review`. Selected physical page numbers are inclusive in `scope`. Keep every selected page's printed label in `page_labels`; a TOC entry names a selected physical page. The preparation command writes an unfinished starter with blank labels and review flags false. Validation should reject unfinished annotations.
+New annotations contain `version: 3`, source_sha256, scope, title, language, page_labels, toc, math, sentences, excluded, unselectable_pages and review. Extraction stays v2 with unchanged token IDs. A sentence is:
 
 ```json
-{
-  "version": 2,
-  "source_sha256": "COPY_FROM_PREPARED",
-  "scope": {"first_page": 1, "last_page": 1},
-  "title": "Paper title",
-  "language": "en",
-  "page_labels": {"1": "1"},
-  "toc": [],
-  "math": {},
-  "lexicon": {
-    "model-n": {"lemma": "model", "pos": "명사", "gloss": "모형, 모델"}
-  },
-  "sentences": [
-    {
-      "id": "s1",
-      "tokens": ["p1t0", "p1t1"],
-      "units": [{
-        "id": "s1-whole",
-        "start": 0,
-        "end": 2,
-        "literal": [{"start": 0, "end": 2, "parts": [{"type": "text", "text": "모형들"}]}],
-        "natural": [{"type": "text", "text": "모형들"}]
-      }],
-      "words": {
-        "p1t0": {"entry": "model-n", "meaning": "이 연구의 모형", "role": "명사구의 중심어", "expression": ""}
-      },
-      "joins": []
-    }
-  ],
-  "excluded": [],
-  "unselectable_pages": [],
-  "review": {"language": false, "layout": false, "coverage": false, "notes": ""}
-}
+{"id":"s1","tokens":["p1t0"],"natural":[{"type":"text","text":"모형"}],"words":{"p1t0":{"base":"모형","meaning":"이 모형"}},"joins":[]}
 ```
 
-This example only illustrates the field shapes. Populate the annotations from the actual source. Mark review flags true only after completing the named review.
+`natural` is one complete sentence translation as text/math parts. A formula part is `{"type":"math","ref":"formula-id"}`. Include each owned formula once, in source order. Do not cut a formula or sentence across authoring boundaries. Headings, captions and short labels can be their own sentence entry. Dragging selects whole prepared sentences; formula-only selection shows the original crop. There is no literal mode or unit array.
 
-### Sentences and translation units
+Every included ASCII-letter prose token needs nonempty `base` (basic meaning) and `meaning` (this occurrence). Pure numbers, punctuation and formula-owned tokens need no word card. Use concise Korean meanings, such as “어제 비가 왔다”; avoid explanatory padding such as “문맥상 …을 나타냄”. There is no lexicon, lemma, POS, role or expression field. Repeated words may have different base wording; merge does not reconcile dictionary entries. Keep technical notation consistent through a small author reference note.
 
-- The sentence `tokens` list defines corrected logical reading order across lines, columns and pages. Each source token in scope belongs to exactly one sentence or one documented exclusion. A title, heading, table cell, caption fragment or short label can be its own entry.
-- New v2 work prepares exactly one whole-sentence unit per sentence, covering `[0, tokens.length)`. Do not prepare clause, phrase or arbitrary substring variants. Literal chunks partition the sentence span in source order without gaps or overlaps; their translated parts preserve meaningful English phrase/clause order and display separated by ` / `. Natural parts give fluent Korean with the same meaning, without adding explanation or summary.
-- A drag touching one or more sentences displays each complete prepared sentence in annotated reading order and highlights those sentences. A drag restricted to one formula displays its original formula crop. The reader must not synthesize translations or call an LLM.
-- Each v2 chunk has `parts`: a sequence of exactly `{"type":"text","text":"..."}` or `{"type":"math","ref":"formula-id"}`. `natural` is also a parts array. Korean text next to a formula remains a separate text part. A formula reference appears once and in source order in both modes; no unit or chunk may cut through a formula.
-- Sentence and unit IDs are unique. Keep sentences and sentence tokens in nondecreasing original page order; within a page use visually confirmed reading order.
+`tokens` defines visually confirmed logical reading order. Every selected source token belongs to exactly one sentence or one documented exclusion. Sentence IDs are unique and original page order is nondecreasing. Optional `joins` preserve individual token IDs and boxes for physically split words verified on the page image.
 
-### Words, joins and math
+`math` maps formula IDs to source tokens and page crop regions `[x,y,width,height]`. Use exact formula regions without nearby prose. Writers check extraction anomalies while authoring; account for meaningful glyphs as math, or verified decoration with a concrete exclusion note. Do not guess unrecovered prose. Do not supply solutions or explanations absent from the source.
 
-- Every included prose token with an ASCII letter needs a `words` entry. Punctuation, pure numbers and tokens owned by a math reference do not. Share a lexicon entry only when lemma, part of speech and base sense match; make occurrence-level `meaning` and `role` specific to the source context. `expression` explains a relevant idiom or technical expression, or is empty.
-- Optional `joins` join consecutive tokens physically split by extraction, such as a line-break hyphen. Preserve their individual IDs and boxes. Use only when the rendered source confirms the joined spelling; this is not a general text correction mechanism.
-- A `math` entry identifies formula tokens and one or more page-specific crop regions in `[x,y,width,height]` page coordinates. Attach math only to formula content, not nearby prose. Check extracted characters against the page image, especially entries in `anomalies.json`. Every anomaly must be accounted for as meaningful math with an exact crop or as a verified decorative mark excluded with a concrete note. Never exclude a prose glyph or an unrecovered word as decorative.
-- Translate the definition, explanation, proof, example or exercise prompt around a formula faithfully. Do not supply a derivation or solution absent from the source.
+Allowed exclusions: references, running_header, page_number, nonlinguistic, each with a concrete note. Prose is never excluded for difficulty. Every selected page needs a printed page label; toc names only selected pages. Truly empty or figure-only pages are accounted for in unselectable_pages; scanned prose is unsupported.
 
-### Scope, exclusions and review
+`review.language`, `review.layout`, `review.coverage` record the writer's completed source checks. They are not automatic proof. No separate model performs full language review. Automated validation checks hashes, identities, omissions, duplicates, mandatory meanings, sentence boundaries, formula references and crop geometry. Fix affected parts and rerun when data changes; do not repeat unchanged full checks.
 
-Allowed exclusion reasons are `references`, `running_header`, `page_number` and `nonlinguistic`. Give a concrete region in each note. Do not exclude prose because it is difficult: front matter, headings, captions, footnotes, table text, exercise prompts and body prose remain in scope. Image-only lettering stays visible on the original page but is not translated and must be disclosed.
-
-For a page with no extracted tokens, visually inspect it and account for it as truly `blank` or `figure_only` in `unselectable_pages`. A scanned text page is unsupported, not an empty page. A PDF with no usable text is unsupported.
-
-`review.language`, `review.layout` and `review.coverage` are attestations, not automatic proof. Read the source and compare its rendered pages before setting them true. Structural validation checks identities, coverage and spans; it cannot prove translation correctness or visual reading order.
+Legacy v2 annotations can be copied and converted using `run.py migrate --work OLD --output NEW`. Natural text, source token IDs, math and joins are retained. Lexicon gloss becomes each token's base and occurrence meaning is retained. The original folder and retained runtime remain unchanged; migration.json records the extraction and new processing runtime separately.
 
 ## Generated HTML
 
 The build embeds page images and translation data in one HTML file. It needs no model, network call, server or extra installation to read. Source text is inserted as text, not executable markup. The reader template is shared; do not tailor or hand-edit generated HTML. Correct annotations and rebuild instead.
+
+## Live publication
+
+Live publication uses cumulative v3 fragments with immutable `_chunk` ownership metadata. Sentence contents retain the same v3 contract. `review.language` and `review.layout` attest to the submitted complete sentences; `review.coverage` remains false until all owned tokens have been accounted for. Missing pending tokens are permitted only for live preview, never for the final build. Published sentences must already include all required cards and formula regions.
+
+The loopback reader embeds original pages once and fetches changed annotations, not new page images. Its update envelope contains a session epoch, monotonic revision, changed sentences, removed IDs, source-ordered sentence IDs, math and metadata, and display status. A new session or missed history resets annotation state without replacing pages. Runtime status and accepted snapshots are separate from source artifacts and the annotation v3 schema. Reading interactions never trigger model calls.

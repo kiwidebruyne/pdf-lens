@@ -198,9 +198,11 @@ class PipelineTests(unittest.TestCase):
         self.assertNotIn('__READER_DATA__', html)
         match = re.search(r'<script id="reader-data" type="application/json">(.*?)</script>', html, re.S)
         payload = json.loads(match.group(1))
-        self.assertEqual(payload['version'], 2)
+        self.assertEqual(payload['version'], 3)
         self.assertEqual(payload['scope'], prepared['scope'])
-        self.assertEqual(len(payload['sentences'][0]['units']), 1)
+        self.assertEqual(payload['sentences'][0]['natural'], annotation['sentences'][0]['units'][0]['natural'])
+        self.assertNotIn('units', payload['sentences'][0])
+        self.assertNotIn('lexicon', payload)
         self.assertTrue(payload['pages'][0]['printed_label'])
         output.write_text('keep', encoding="utf-8")
         annotation['review']['layout'] = False

@@ -7,15 +7,8 @@ const path = new URL("../assets/reader/reader.js", import.meta.url);
 const api = fs.existsSync(path)
   ? createRequire(import.meta.url)(fileURLToPath(path))
   : {};
-const unit = (id, start, end) => ({
-  id,
-  start,
-  end,
-  literal: [{ start, end, text: id + " 직역" }],
-  natural: id + " 자연",
-});
 const data = {
-  version: 2,
+  version: 3,
   pages: [
     { tokens: ["a", "c", "b"].map((id) => ({ id, text: id })) },
     { tokens: ["d", "e", "f"].map((id) => ({ id, text: id })) },
@@ -24,21 +17,51 @@ const data = {
     {
       id: "s1",
       tokens: ["a", "b", "c", "d"],
-      units: [unit("whole", 0, 4), unit("ab", 0, 2), unit("cd", 2, 4)],
+      natural: [{type:"text", text:"문장 하나"}], words: {a:{base:"기본",meaning:"문맥"}},
       joins: [],
     },
-    { id: "s2", tokens: ["e", "f"], units: [unit("ef", 0, 2)], joins: [] },
+    { id: "s2", tokens: ["e", "f"], natural: [{type:"text",text:"문장 둘"}], joins: [] },
   ],
-  lexicon: {},
 };
+test('live original-only selection reports a region without inventing sentence boundaries', () => {
+  const initial = {...data, sentences: [], live: {revision: 0}};
+  const results = api.resolveSelection(api.createIndex(initial), 'c', 'e');
+  assert.equal(results.length, 1);
+  assert.equal(results[0].pending, true);
+  assert.deepEqual(results[0].tokenIds, ['c', 'b', 'd', 'e']);
+  assert.deepEqual(results[0].sentence.tokens, results[0].tokenIds);
+});
+test('live mixed selection combines a complete corrected sentence with a pending region', () => {
+  const partial = {...data, sentences: [data.sentences[0]], live: {revision: 1}};
+  const results = api.resolveSelection(api.createIndex(partial), 'c', 'e');
+  assert.equal(results.length, 2);
+  assert.equal(results[0].sentence.id, 's1');
+  assert.deepEqual(results[0].tokenIds, ['a', 'b', 'c', 'd']);
+  assert.equal(results[1].pending, true);
+  assert.deepEqual(results[1].tokenIds, ['e']);
+});
+test('live delta retains untouched sentences and reset removes old session content', () => {
+  assert.equal(typeof api.applyLiveUpdate, 'function');
+  const initial = {...data, live: {epoch: 'old', revision: 1}};
+  const changed = {...data.sentences[0], natural: [{type:'text', text:'수정된 문장'}]};
+  const delta = api.applyLiveUpdate(initial, {epoch:'old', revision:2, reset:false,
+    sentences:[changed], removed_sentence_ids:[], order:['s1','s2'], math:{}});
+  assert.equal(delta.sentences[1], data.sentences[1]);
+  assert.equal(delta.pages, data.pages);
+  assert.equal(delta.sentences[0].natural[0].text, '수정된 문장');
+  const reset = api.applyLiveUpdate(delta, {epoch:'new', revision:1, reset:true,
+    sentences:[], removed_sentence_ids:[], order:[], math:{}});
+  assert.deepEqual(reset.sentences, []);
+  assert.equal(reset.live.epoch, 'new');
+});
 test("corrected reading order and reverse drag resolve identically", () => {
   assert.equal(typeof api.createIndex, "function");
   const index = api.createIndex(data);
   const f = api.resolveSelection(index, "b", "e");
   const r = api.resolveSelection(index, "e", "b");
   assert.deepEqual(
-    f.map((x) => x.unit.id),
-    ["whole", "ef"],
+    f.map((x) => x.sentence.id),
+    ["s1", "s2"],
   );
   assert.deepEqual(r, f);
   assert.deepEqual(
@@ -49,21 +72,20 @@ test("corrected reading order and reverse drag resolve identically", () => {
 test("a partial sentence selects its stored whole translation", () => {
   assert.equal(typeof api.createIndex, "function");
   const result = api.resolveSelection(api.createIndex(data), "c", "c");
-  assert.equal(result[0].unit, data.sentences[0].units[0]);
+  assert.equal(result[0].sentence, data.sentences[0]);
   assert.deepEqual(result[0].tokenIds, ["a", "b", "c", "d"]);
-  assert.equal(api.translation(result[0].unit, false), "whole 직역");
-  assert.equal(api.translation(result[0].unit, true), "whole 자연");
+  assert.deepEqual(api.translationParts(result[0].sentence), data.sentences[0].natural);
 });
-test("v2 drags resolve to whole touched sentences in either direction", () => {
-  const scoped = { ...data, version: 2 };
+test("v3 drags resolve to whole touched sentences in either direction", () => {
+  const scoped = { ...data, version: 3 };
   const index = api.createIndex(scoped);
   const within = api.resolveSelection(index, "c", "c");
-  assert.equal(within[0].unit.id, "whole");
+  assert.equal(within[0].sentence.id, "s1");
   assert.deepEqual(within[0].tokenIds, ["a", "b", "c", "d"]);
   const forward = api.resolveSelection(index, "c", "e");
   const reverse = api.resolveSelection(index, "e", "c");
   assert.deepEqual(reverse, forward);
-  assert.deepEqual(forward.map((x) => x.unit.id), ["whole", "ef"]);
+  assert.deepEqual(forward.map((x) => x.sentence.id), ["s1", "s2"]);
   assert.deepEqual(forward.flatMap((x) => x.tokenIds), ["a", "b", "c", "d", "e", "f"]);
 });
 test("unknown excluded token cannot create a selection", () => {
@@ -92,13 +114,8 @@ test("popup source preserves prepared line-break join and source identity", () =
   ]);
 });
 
-test("literal chunks keep prepared source order and delimiters", () => {
-  const u = {
-    literal: [{ text: "첫 절" }, { text: "둘째 절" }],
-    natural: "유창한 문장",
-  };
-  assert.equal(api.translation(u, false), "첫 절 / 둘째 절");
-  assert.equal(api.translation(u, true), "유창한 문장");
+test("v3 word data needs only basic and contextual meanings", () => {
+  assert.deepEqual(data.sentences[0].words.a, {base:"기본", meaning:"문맥"});
 });
 
 test("selection diff only mutates entering and leaving token IDs", () => {
@@ -143,15 +160,15 @@ test("TOC targets original PDF page and an empty TOC stays empty", () => {
 
 test("math tokens resolve atomically from either end of a formula", () => {
   const mathData = {
-    version: 2,
+    version: 3,
     pages: [{ tokens: ["a", "m1", "m2", "b"].map((id) => ({ id, text: id })) }],
-    sentences: [{ id: "s", tokens: ["a", "m1", "m2", "b"], units: [unit("whole", 0, 4)] }],
+    sentences: [{ id: "s", tokens: ["a", "m1", "m2", "b"], natural:[{type:"text",text:"값 "},{type:"math",ref:"eq"}] }],
     math: { eq: { tokens: ["m1", "m2"], regions: [{ page: 1, box: [1, 2, 3, 4] }] } },
   };
   const index = api.createIndex(mathData);
   assert.deepEqual(api.resolveSelection(index, "m1", "m1")[0].tokenIds, ["m1", "m2"]);
   assert.deepEqual(api.resolveSelection(index, "m2", "m2")[0].tokenIds, ["m1", "m2"]);
-  assert.deepEqual(api.translationParts(api.resolveSelection(index, "m1", "m2")[0].unit, true), [{ type: "math", ref: "eq" }]);
+  assert.deepEqual(api.translationParts(api.resolveSelection(index, "m1", "m2")[0]), [{ type: "math", ref: "eq" }]);
   assert.deepEqual(api.resolveSelection(index, "a", "m1")[0].tokenIds, ["a", "m1", "m2", "b"]);
   assert.equal(api.mathForToken(index, "m2"), "eq");
   assert.deepEqual(api.sourceParts(index, mathData.sentences[0], 1, 3), [
@@ -159,13 +176,9 @@ test("math tokens resolve atomically from either end of a formula", () => {
   ]);
 });
 
-test("v2 translation parts retain math reference in both modes", () => {
-  const u = {
-    literal: [{ parts: [{ type: "text", text: "값은 " }, { type: "math", ref: "eq" }] }],
-    natural: [{ type: "text", text: "값은 " }, { type: "math", ref: "eq" }],
-  };
-  assert.deepEqual(api.translationParts(u, false), u.literal[0].parts);
-  assert.deepEqual(api.translationParts(u, true), u.natural);
+test("v3 translation parts retain exact math reference", () => {
+  const s = {natural:[{type:"text",text:"값은 "},{type:"math",ref:"eq"}]};
+  assert.deepEqual(api.translationParts(s), s.natural);
 });
 
 test("a page-spanning math crop targets a token on its own PDF page", () => {

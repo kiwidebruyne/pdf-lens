@@ -82,5 +82,7 @@ jobs:
         if: always()
         with:
           name: verification-${{ runner.os }}
-          path: ${{ runner.temp }}/검증 결과/browser.json
+          path: |
+            ${{ runner.temp }}/검증 결과/browser.json
+            ${{ runner.temp }}/검증 결과/live-browser.json
           if-no-files-found: ignore

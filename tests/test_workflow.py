@@ -86,6 +86,16 @@ class WorkflowTests(unittest.TestCase):
                        'context_tokens': chunk['context_tokens']},
         }
 
+    def v3_fragment(self, chunk_id, ids, sentence_id=None, meaning='뜻'):
+        fragment = self.fragment(chunk_id, ids, sentence_id)
+        fragment['version'] = 3
+        fragment.pop('lexicon')
+        for sentence in fragment['sentences']:
+            sentence.pop('units')
+            sentence['natural'] = [{'type': 'text', 'text': '자연스러운 번역'}]
+            sentence['words'] = {key: {'base': 'word', 'meaning': meaning} for key in ids}
+        return fragment
+
     def test_plan_rejects_unowned_duplicate_and_out_of_order_tokens(self):
         for chunks in (
             [{'id': 'a', 'owned_tokens': ['p1t0'], 'context_tokens': []}],
@@ -209,6 +219,125 @@ class WorkflowTests(unittest.TestCase):
             self.write(fragments / f'{chunk_id}.json', fragment)
         with self.assertRaisesRegex(ValueError, 'Conflicting lexicon key'):
             workflow.merge_fragments(self.work, self.worklist, fragments)
+
+    def test_v3_merges_local_meanings_without_shared_lexicon(self):
+        fragments = self.root / 'v3-fragments'
+        fragments.mkdir()
+        self.write(fragments / 'a.json', self.v3_fragment('a', ['p1t0'], meaning='가로질러'))
+        self.write(fragments / 'b.json', self.v3_fragment('b', ['p2t0'], meaning='쪽'))
+        merged = workflow.merge_fragments(self.work, self.worklist, fragments)
+        self.assertEqual(merged['version'], 3)
+        self.assertNotIn('lexicon', merged)
+        self.assertEqual(merged['sentences'][0]['words']['p1t0']['meaning'], '가로질러')
+        self.assertEqual(merged['sentences'][1]['words']['p2t0']['meaning'], '쪽')
+
+    def test_v3_rejects_missing_meaning_and_bad_math_before_merge(self):
+        fragments = self.root / 'v3-invalid'
+        fragments.mkdir()
+        valid = self.v3_fragment('b', ['p2t0'])
+        self.write(fragments / 'b.json', valid)
+        missing = self.v3_fragment('a', ['p1t0'])
+        missing['sentences'][0]['words']['p1t0']['meaning'] = ''
+        self.write(fragments / 'a.json', missing)
+        with self.assertRaisesRegex(ValueError, 'meaning'):
+            workflow.merge_fragments(self.work, self.worklist, fragments)
+        bad_math = self.v3_fragment('a', ['p1t0'])
+        bad_math['sentences'][0]['natural'] = [{'type': 'math', 'ref': 'missing'}]
+        self.write(fragments / 'a.json', bad_math)
+        with self.assertRaisesRegex(ValueError, 'formula references'):
+            workflow.merge_fragments(self.work, self.worklist, fragments)
+
+    def test_check_fragment_cli_reports_v3_meaning_error(self):
+        worklist_path = self.root / 'worklist.json'
+        fragment_path = self.root / 'fragment.json'
+        self.write(worklist_path, self.worklist)
+        fragment = self.v3_fragment('a', ['p1t0'])
+        fragment['sentences'][0]['words']['p1t0']['meaning'] = ''
+        self.write(fragment_path, fragment)
+        script = Path(__file__).resolve().parents[1] / 'scripts' / 'check_fragment.py'
+        result = subprocess.run([
+            sys.executable, str(script), '--work', str(self.work), '--fragment', str(fragment_path),
+            '--worklist', str(worklist_path), '--chunk', 'a'], capture_output=True, text=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('meaning', result.stdout)
+
+    def test_v3_starter_and_missing_starter_do_not_block_fragment_check_or_merge(self):
+        starter_path = self.work / 'annotations.json'
+        starter = json.loads(starter_path.read_text(encoding='utf-8'))
+        starter['version'] = 3
+        starter.pop('lexicon')
+        self.write(starter_path, starter)
+        worklist_path = self.root / 'worklist.json'
+        fragment_path = self.root / 'fragment.json'
+        self.write(worklist_path, self.worklist)
+        self.write(fragment_path, self.v3_fragment('a', ['p1t0']))
+        script = Path(__file__).resolve().parents[1] / 'scripts' / 'check_fragment.py'
+        command = [sys.executable, str(script), '--work', str(self.work),
+                   '--fragment', str(fragment_path), '--worklist', str(worklist_path), '--chunk', 'a']
+        result = subprocess.run(command, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        starter_path.unlink()
+        result = subprocess.run(command, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        fragments = self.root / 'v3-no-starter'
+        fragments.mkdir()
+        self.write(fragments / 'a.json', self.v3_fragment('a', ['p1t0']))
+        self.write(fragments / 'b.json', self.v3_fragment('b', ['p2t0']))
+        self.assertEqual(workflow.merge_fragments(self.work, self.worklist, fragments)['version'], 3)
+
+    def test_v3_merge_preserves_complete_writer_review(self):
+        fragments = self.root / 'reviewed-v3'
+        fragments.mkdir()
+        for chunk_id, token in (('a', 'p1t0'), ('b', 'p2t0')):
+            fragment = self.v3_fragment(chunk_id, [token])
+            fragment['review'] = {'language': True, 'layout': True, 'coverage': True,
+                                  'notes': f'{chunk_id}: checked source tokens and page layout'}
+            self.write(fragments / f'{chunk_id}.json', fragment)
+        merged = workflow.merge_fragments(self.work, self.worklist, fragments)
+        self.assertEqual(merged['review']['language'], True)
+        self.assertEqual(merged['review']['layout'], True)
+        self.assertEqual(merged['review']['coverage'], True)
+        self.assertIn('a: checked source tokens', merged['review']['notes'])
+        self.assertIn('b: checked source tokens', merged['review']['notes'])
+        _, _, report = workflow.validate(self.work, self.write_and_return(self.root / 'merged.json', merged))
+        self.assertFalse(report['errors'], report['errors'])
+
+    def test_v3_merge_keeps_incomplete_writer_review_pending(self):
+        fragments = self.root / 'pending-v3'
+        fragments.mkdir()
+        first = self.v3_fragment('a', ['p1t0'])
+        first['review'] = {'language': True, 'layout': True, 'coverage': True,
+                           'notes': 'a: checked source tokens'}
+        second = self.v3_fragment('b', ['p2t0'])
+        second['review'] = {'language': True, 'layout': True, 'coverage': True, 'notes': ''}
+        self.write(fragments / 'a.json', first)
+        self.write(fragments / 'b.json', second)
+        merged = workflow.merge_fragments(self.work, self.worklist, fragments)
+        self.assertFalse(merged['review']['language'])
+        self.assertFalse(merged['review']['layout'])
+        self.assertFalse(merged['review']['coverage'])
+        self.assertIn('pending', merged['review']['notes'])
+
+    def test_v3_merge_aggregates_each_review_flag(self):
+        fragments = self.root / 'mixed-v3-review'
+        fragments.mkdir()
+        first = self.v3_fragment('a', ['p1t0'])
+        first['review'] = {'language': True, 'layout': True, 'coverage': True,
+                           'notes': 'Checked first source span'}
+        second = self.v3_fragment('b', ['p2t0'])
+        second['review'] = {'language': True, 'layout': False, 'coverage': True,
+                            'notes': 'Checked second source span; layout pending'}
+        self.write(fragments / 'a.json', first)
+        self.write(fragments / 'b.json', second)
+        merged = workflow.merge_fragments(self.work, self.worklist, fragments)
+        self.assertTrue(merged['review']['language'])
+        self.assertFalse(merged['review']['layout'])
+        self.assertTrue(merged['review']['coverage'])
+
+    @classmethod
+    def write_and_return(cls, path, value):
+        cls.write(path, value)
+        return path
 
     def test_merge_runs_full_validation_across_chunk_boundaries(self):
         fragments = self.root / 'duplicate-sentences'

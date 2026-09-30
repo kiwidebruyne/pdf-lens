@@ -6,6 +6,7 @@ Validation establishes structural integrity, not linguistic correctness.
 """
 import argparse
 import base64
+import copy
 import hashlib
 import html
 import json
@@ -293,8 +294,8 @@ def prepare(pdf, work, page_range=None, runtime_id=None):
         (stage / 'pdfinfo.txt').write_text(f'Backend: PyMuPDF {pymupdf.VersionBind}\nPages: {source_pages}\n', encoding='utf-8')
         prepared_tokens(stage, prepared)
         write_json(stage / 'prepared.json', prepared)
-        starter = {'version': version, 'source_sha256': source_hash,
-                   'title': pdf.stem, 'language': 'en', 'lexicon': {}, 'sentences': [], 'excluded': [],
+        starter = {'version': 3, 'source_sha256': source_hash,
+                   'title': pdf.stem, 'language': 'en', 'sentences': [], 'excluded': [],
                    'unselectable_pages': [{'page': p['number'], 'kind': '', 'note': ''} for p in pages if not p['tokens']],
                    'review': {'language': False, 'layout': False, 'coverage': False, 'notes': ''}}
         starter.update({'scope': scope, 'page_labels': {}, 'toc': [], 'math': {}})
@@ -317,6 +318,28 @@ def prepare(pdf, work, page_range=None, runtime_id=None):
             'tokens': sum(len(p['tokens']) for p in pages)}
 
 
+def convert_annotations_v3(annotation):
+    """Explicitly migrate a v2 authoring document without changing source IDs."""
+    if annotation.get('version') != 2:
+        raise ValueError('Only v2 annotations can be converted to v3')
+    converted = copy.deepcopy(annotation)
+    lexicon = converted.pop('lexicon', {})
+    converted['version'] = 3
+    for sentence in converted.get('sentences', []):
+        units = sentence.pop('units', [])
+        whole = [unit for unit in units if unit.get('start') == 0 and unit.get('end') == len(sentence.get('tokens', []))]
+        if len(whole) != 1:
+            raise ValueError(f"{sentence.get('id')}: exactly one whole-sentence unit required for conversion")
+        sentence['natural'] = whole[0]['natural']
+        words = sentence.get('words', {})
+        for key, word in words.items():
+            entry = lexicon.get(word.get('entry'))
+            if not isinstance(entry, dict) or not isinstance(entry.get('gloss'), str):
+                raise ValueError(f'{key}: missing v2 lexicon gloss')
+            words[key] = {'base': entry['gloss'], 'meaning': word.get('meaning')}
+    return converted
+
+
 def validate(work, annotation_path):
     prepared = read_json(work / 'prepared.json')
     verify_manifest(work, prepared)
@@ -334,8 +357,8 @@ def validate(work, annotation_path):
         if not check(type(a) is int and type(b) is int and 0 <= a < b <= total, label + ': invalid span'):
             return None
         return a, b
-    version = prepared['version']
-    check(annotation.get('version') == version, 'Annotation version must match preparation')
+    version = annotation.get('version')
+    check(prepared['version'] == 2 and version in (2, 3), 'Annotation version must be v2 or v3 over v2 preparation')
     check(annotation.get('source_sha256') == prepared['source']['sha256'], 'Annotation source hash mismatch')
     check(annotation.get('scope') == prepared['scope'], 'Annotation selected page range mismatch')
     check(text(annotation.get('title')), 'Title is required')
@@ -356,13 +379,16 @@ def validate(work, annotation_path):
         check(disposition.get('kind') in ('blank', 'figure_only') and text(disposition.get('note')), 'Zero-token page needs blank/figure_only visual disposition and note; scanned prose is unsupported')
     check(seen_pages == empty_pages, 'All zero-token pages need unselectable_pages visual disposition; scanned prose is unsupported')
     lexicon = annotation.get('lexicon', {})
-    if not isinstance(lexicon, dict):
-        raise ValueError('lexicon must be an object')
-    for key, entry in lexicon.items():
-        check(text(key) and isinstance(entry, dict) and all(text(entry.get(f)) for f in ('lemma', 'pos', 'gloss')), f'Lexicon {key}: lemma/pos/gloss required')
+    if version == 2:
+        if not isinstance(lexicon, dict):
+            raise ValueError('lexicon must be an object')
+        for key, entry in lexicon.items():
+            check(text(key) and isinstance(entry, dict) and all(text(entry.get(f)) for f in ('lemma', 'pos', 'gloss')), f'Lexicon {key}: lemma/pos/gloss required')
+    else:
+        check('lexicon' not in annotation, 'v3 annotations must not contain lexicon')
     math = annotation.get('math', {})
     math_by_token = {}
-    if version == 2:
+    if version in (2, 3):
         check(isinstance(math, dict), 'math must be an object')
         labels = annotation.get('page_labels', {})
         check(isinstance(labels, dict) and set(labels) == {str(p['number']) for p in prepared['pages']} and all(text(v) for v in labels.values()), 'Every selected PDF page needs a printed page label')
@@ -407,7 +433,7 @@ def validate(work, annotation_path):
                 observed.append(part.get('ref'))
             else:
                 check(False, label + ': unknown translation part type')
-        check(observed == expected_refs, label + ': formula references must match source order and coverage')
+        check(observed == expected_refs, label + ': math formula references must match source order and coverage')
     owners = {}
     sentence_ids, unit_ids = set(), set()
     sentences = annotation.get('sentences', [])
@@ -436,7 +462,7 @@ def validate(work, annotation_path):
         valid = assign(ids, str(sid))
         if not isinstance(ids, list) or not ids:
             continue
-        if version == 2:
+        if version in (2, 3):
             sentence_pages = [int(key[1:key.index('t')]) for key in ids if key in tokens]
             if sentence_pages:
                 check(sentence_pages == sorted(sentence_pages), f'{sid}: source tokens must follow PDF page order')
@@ -445,7 +471,7 @@ def validate(work, annotation_path):
                 previous_sentence_end_page = sentence_pages[-1]
         n = len(ids)
         math_spans = []
-        if version == 2:
+        if version in (2, 3):
             for ref, item in math.items():
                 positions = [i for i, key in enumerate(ids) if math_by_token.get(key) == ref]
                 if not positions:
@@ -460,7 +486,10 @@ def validate(work, annotation_path):
                     check(a <= start and end <= b, f'{sid}: unit splits math {ref}')
                     refs.append(ref)
             return refs
-        units = sentence.get('units', [])
+        units = sentence.get('units', []) if version == 2 else []
+        if version == 3:
+            check('units' not in sentence, f'{sid}: v3 sentence must not contain units')
+            check_parts(sentence.get('natural'), refs_for(0, n), f'{sid} natural')
         intervals = []
         for unit in units:
             uid = unit.get('id')
@@ -483,8 +512,9 @@ def validate(work, annotation_path):
                     cursor = cb
                     check_parts(chunk.get('parts'), refs_for(ca, cb), f'{uid} literal')
             check(cursor == b and bool(chunks), f'{uid}: literal chunks must cover entire unit')
-        check(len(intervals) == 1 and intervals.count((0, n)) == 1,
-              f'{sid}: exactly one whole-sentence unit required')
+        if version == 2:
+            check(len(intervals) == 1 and intervals.count((0, n)) == 1,
+                  f'{sid}: exactly one whole-sentence unit required')
         for i, (a, b) in enumerate(intervals):
             for c, d in intervals[i+1:]:
                 check(not (a < c < b < d or c < a < d < b), f'{sid}: crossing translation units')
@@ -493,10 +523,17 @@ def validate(work, annotation_path):
             raise ValueError(f'{sid}: words must be an object')
         for key in words:
             check(key in ids, f'{sid}: word entry outside sentence: {key}')
+            if version == 3:
+                word = words[key]
+                check(isinstance(word, dict) and set(word) == {'base', 'meaning'} and text(word.get('base')) and text(word.get('meaning')),
+                      f'{key}: base and context meaning required')
         for key in valid:
             if ENGLISH.search(tokens[key]['text']) and key not in math_by_token:
                 word = words.get(key, {})
-                check(isinstance(word, dict) and word.get('entry') in lexicon and text(word.get('meaning')) and text(word.get('role')) and isinstance(word.get('expression'), str), f'{key}: lexical entry, context meaning, role and expression required')
+                if version == 2:
+                    check(isinstance(word, dict) and word.get('entry') in lexicon and text(word.get('meaning')) and text(word.get('role')) and isinstance(word.get('expression'), str), f'{key}: lexical entry, context meaning, role and expression required')
+                elif key not in words:
+                    check(False, f'{key}: base and context meaning required')
         joined = set()
         for join in sentence.get('joins', []):
             bounds = span(join, n, str(sid) + ' join')
@@ -504,7 +541,7 @@ def validate(work, annotation_path):
                 continue
             a, b = bounds
             check(b-a >= 2, f'{sid}: join needs multiple tokens')
-            if version == 2:
+            if version in (2, 3):
                 check(not any(key in math_by_token for key in ids[a:b]), f'{sid}: join overlaps math source tokens')
             check(not joined.intersection(range(a, b)), f'{sid}: overlapping joins')
             joined.update(range(a, b))
@@ -521,15 +558,16 @@ def validate(work, annotation_path):
                     stripped[i] = stripped[i][:-1]
             candidates.add(''.join(stripped))
             check(join.get('text') in candidates, f'{sid}: join text is not normalized source concatenation')
-            entries = [words.get(key, {}).get('entry') for key in ids[a:b] if ENGLISH.search(tokens[key]['text'])]
-            check(bool(entries) and len(set(entries)) == 1 and entries[0] in lexicon, f'{sid}: joined lexical tokens must share a base entry')
+            if version == 2:
+                entries = [words.get(key, {}).get('entry') for key in ids[a:b] if ENGLISH.search(tokens[key]['text'])]
+                check(bool(entries) and len(set(entries)) == 1 and entries[0] in lexicon, f'{sid}: joined lexical tokens must share a base entry')
     for excluded in annotation.get('excluded', []):
         check(excluded.get('reason') in REASONS, 'Unknown exclusion reason')
         check(text(excluded.get('note')), 'Concrete exclusion note required')
         assign(excluded.get('tokens'), 'excluded:' + str(excluded.get('reason')))
     missing = [key for key in tokens if key not in owners]
     check(not missing, f'{len(missing)} source tokens unassigned: ' + ', '.join(missing[:20]))
-    if version == 2:
+    if version in (2, 3):
         check(all(key in owners and not owners[key].startswith('excluded:') for key in math_by_token), 'Math tokens must belong to source sentences')
         for ref, item in math.items():
             check(any(item['tokens'] == sentence['tokens'][i:i+len(item['tokens'])] for sentence in sentences for i in range(len(sentence['tokens'])-len(item['tokens'])+1)), f'{ref}: math must belong to one contiguous sentence range')
@@ -551,6 +589,8 @@ def build(work, annotations, output):
     prepared, annotation, report = validate(work, annotations)
     if not report['ok']:
         return report
+    if annotation['version'] == 2:
+        annotation = convert_annotations_v3(annotation)
     assets = ROOT / 'assets' / 'reader'
     template = (assets / 'index.html').read_text(encoding='utf-8')
     pages = []
@@ -561,16 +601,10 @@ def build(work, annotations, output):
         page['printed_label'] = annotation['page_labels'][str(page['number'])]
         page['image'] = 'data:image/svg+xml;base64,' + base64.b64encode(raw).decode('ascii')
         pages.append(page)
-    sentences = annotation['sentences']
-    if prepared['version'] == 2:
-        sentences = [dict(sentence, units=[next(unit for unit in sentence['units']
-                                               if unit['start'] == 0 and unit['end'] == len(sentence['tokens']))])
-                     for sentence in sentences]
-    payload = {'version': prepared['version'], 'template_version': 1, 'title': annotation['title'], 'source': prepared['source'],
-               'pages': pages, 'sentences': sentences, 'lexicon': annotation['lexicon'],
+    payload = {'version': annotation['version'], 'template_version': 1, 'title': annotation['title'], 'source': prepared['source'],
+               'pages': pages, 'sentences': annotation['sentences'],
                'unselectable_pages': annotation.get('unselectable_pages', [])}
-    if prepared['version'] == 2:
-        payload.update({'scope': prepared['scope'], 'toc': annotation['toc'], 'math': annotation['math']})
+    payload.update({'scope': prepared['scope'], 'toc': annotation['toc'], 'math': annotation['math']})
     data = json.dumps(payload, ensure_ascii=False, separators=(',', ':'))
     for char in '<>&\u2028\u2029':
         data = data.replace(char, '\\u%04x' % ord(char))
